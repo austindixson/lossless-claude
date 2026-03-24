@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { sanitizeFts5Query, hasCjk } from "./db/fts5.js";
+import isSafe from "safe-regex2";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -95,6 +96,26 @@ function makeSnippet(content: string, pattern?: string, maxLen = 300): string {
     } catch {
       /* invalid regex, fall through */
     }
+  }
+  return content.slice(0, maxLen) + "...";
+}
+
+/** Truncate content around a match using a pre-compiled RegExp (safer, no re-parsing). */
+function makeSnippetWithRegex(content: string, re: RegExp, maxLen = 300): string {
+  if (content.length <= maxLen) return content;
+  try {
+    const match = re.exec(content);
+    if (match) {
+      const start = Math.max(0, match.index - 100);
+      const end = Math.min(content.length, match.index + match[0].length + 200);
+      return (
+        (start > 0 ? "..." : "") +
+        content.slice(start, end) +
+        (end < content.length ? "..." : "")
+      );
+    }
+  } catch {
+    /* regex error, fall through */
   }
   return content.slice(0, maxLen) + "...";
 }
@@ -474,6 +495,11 @@ function searchFullText(
   }
 }
 
+/** Escape SQLite LIKE wildcards to treat them as literals. */
+function escapeLikePattern(raw: string): string {
+  return raw.replace(/[%_\\]/g, '\\$&');
+}
+
 function searchLike(
   db: Database.Database,
   pattern: string,
@@ -481,8 +507,9 @@ function searchLike(
   filters: ScopeFilters,
 ): SearchResult[] {
   const scope = buildScopeClause(filters);
-  const whereParts = ["content LIKE '%' || ? || '%'", ...scope.clauses];
-  const args: Array<string | number> = [pattern, ...scope.args, limit];
+  const escapedPattern = escapeLikePattern(pattern);
+  const whereParts = ["content LIKE '%' || ? || '%' ESCAPE '\\'", ...scope.clauses];
+  const args: Array<string | number> = [escapedPattern, ...scope.args, limit];
 
   const sql = `
     SELECT id, conversation_id, seq, role, content, created_at
@@ -511,8 +538,8 @@ function searchRegex(
   limit: number,
   filters: ScopeFilters,
 ): SearchResult[] {
-  // Guard against ReDoS: reject patterns with nested quantifiers or excessive length
-  if (pattern.length > 500 || /(\+|\*|\?)\)(\+|\*|\?|\{\d)/.test(pattern)) {
+  // Guard against ReDoS using safe-regex2 library
+  if (pattern.length > 500 || !isSafe(pattern)) {
     return [];
   }
 
@@ -527,21 +554,21 @@ function searchRegex(
   const whereClause =
     scope.clauses.length > 0 ? `WHERE ${scope.clauses.join(" AND ")}` : "";
 
+  const MAX_ROW_SCAN = 10_000;
+
   const sql = `
     SELECT id, conversation_id, seq, role, content, created_at
     FROM messages
     ${whereClause}
-    ORDER BY created_at DESC`;
+    ORDER BY created_at DESC
+    LIMIT ?`;
 
-  const rows = db.prepare(sql).all(...scope.args) as MessageRow[];
+  const rows = db.prepare(sql).all(...scope.args, MAX_ROW_SCAN) as MessageRow[];
 
-  const MAX_ROW_SCAN = 10_000;
   const results: SearchResult[] = [];
-  let scanned = 0;
 
   for (const row of rows) {
-    if (results.length >= limit || scanned >= MAX_ROW_SCAN) break;
-    scanned += 1;
+    if (results.length >= limit) break;
 
     if (re.test(row.content)) {
       results.push({
@@ -549,7 +576,7 @@ function searchRegex(
         conversation_id: row.conversation_id,
         seq: row.seq,
         role: row.role,
-        snippet: makeSnippet(row.content, pattern),
+        snippet: makeSnippetWithRegex(row.content, re),
         created_at: row.created_at,
       });
     }

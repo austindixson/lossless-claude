@@ -94,8 +94,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
     }
   } catch (error) {
+    // Log detailed error for debugging
+    console.error("[lossless-recall] Tool error:", error);
+    // Return generic message to client
     return {
-      content: [{ type: "text", text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
+      content: [{ type: "text", text: "An internal error occurred. Check server logs for details." }],
       isError: true,
     };
   }

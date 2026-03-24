@@ -88,9 +88,17 @@ function normalizeRole(
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  // Read stdin
+  // Read stdin with size limit to prevent OOM
+  const MAX_STDIN_SIZE = 10 * 1024 * 1024; // 10MB
   const chunks: Buffer[] = [];
+  let totalSize = 0;
+
   for await (const chunk of process.stdin) {
+    totalSize += chunk.length;
+    if (totalSize > MAX_STDIN_SIZE) {
+      console.error("[lossless-recall] Stdin exceeds 10MB limit");
+      process.exit(1);
+    }
     chunks.push(chunk as Buffer);
   }
   const raw = Buffer.concat(chunks).toString("utf-8").trim();
