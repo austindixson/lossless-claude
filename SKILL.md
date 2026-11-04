@@ -2,7 +2,7 @@
 name: lossless-recall
 description: Lossless conversation recall for Claude Code — MCP server that captures every turn to SQLite and provides full-text search across all session history. Use when you need to find specific messages, decisions, errors, or details that Claude Code's auto-compaction may have lost.
 version: 0.1.0
-source: https://github.com/RuneweaverStudios/lossless-claude
+source: https://github.com/austindixson/lossless-claude
 ---
 
 # Lossless Recall
@@ -34,7 +34,7 @@ Claude Code ──▶ Stop Hook ──▶ capture.ts ──▶ SQLite (recall.db
 
 ```bash
 # Clone and build
-git clone https://github.com/RuneweaverStudios/lossless-claude.git
+git clone https://github.com/austindixson/lossless-claude.git
 cd lossless-claude
 npm install && npm run build
 
